@@ -1,0 +1,8 @@
+{
+  "name": "setup-stagehand-acceptance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@browserbasehq/stagehand": "4.4.0"
+  }
+}
