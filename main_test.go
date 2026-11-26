@@ -23,14 +23,11 @@ func TestBaseURL(t *testing.T) {
 	assert.Check(t, cmp.Equal(baseURL("https://flag.example.com"), "https://flag.example.com"))
 }
 
-func TestCheckModel(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	t.Setenv("GOOGLE_GENERATIVE_AI_API_KEY", "")
-	t.Setenv("GEMINI_API_KEY", "key")
-	assert.Check(t, checkModel("google/gemini-3-flash", false))
-	assert.Check(t, cmp.ErrorContains(checkModel("anthropic/claude-sonnet-5-5", false), "needs ANTHROPIC_API_KEY"))
-	assert.Check(t, checkModel("anthropic/claude-sonnet-5-5", true), "Browserbase's gateway can serve it")
-	assert.Check(t, cmp.ErrorContains(checkModel("anthropic/", true), "want <provider>/<model>"))
+func TestAnyAPIKey(t *testing.T) {
+	assert.Check(t, anyAPIKey([]string{"OPENROUTER_API_KEY=sk-or"}))
+	assert.Check(t, anyAPIKey([]string{"MODEL_API_KEY=x"}))
+	assert.Check(t, !anyAPIKey([]string{"BROWSERBASE_API_KEY=bb"}))
+	assert.Check(t, !anyAPIKey([]string{"ANTHROPIC_API_KEY=", "PATH=/bin"}))
 }
 
 func TestNodeRunsStagehand4(t *testing.T) {

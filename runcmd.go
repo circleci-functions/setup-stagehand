@@ -32,7 +32,7 @@ type runCmd struct {
 	Command          string `required:"" help:"Shell command that runs the project's Stagehand scripts or tests, in working-directory." example:"node e2e/checkout.ts"`
 	BaseURL          string `name:"base-url" help:"URL of the site to test, exported to the command as BASE_URL. Empty uses DEPLOYMENT_URL, then VERCEL_DEPLOYMENT_URL, which a deploy step exports, and with neither leaves BASE_URL alone." example:"https://my-app.example.com"`
 	Browser          string `enum:"auto,local,browserbase" default:"auto" help:"Where Chrome runs, exported as STAGEHAND_BROWSER: local, in the job, or browserbase, on Browserbase, which needs BROWSERBASE_API_KEY. auto is browserbase when BROWSERBASE_API_KEY is set, else local."`
-	Model            string `help:"Model for act, extract, observe and agent, as <provider>/<model>, exported as STAGEHAND_MODEL. The provider's API key must be set, such as ANTHROPIC_API_KEY. Empty leaves it to the script; the helper then picks a model for whichever key is set." example:"anthropic/claude-sonnet-5-5"`
+	Model            string `help:"Model for act, extract, observe and agent, exported to the command as STAGEHAND_MODEL as written, such as anthropic/claude-sonnet-5-5. The script, or the helper, decides what to do with it; the step does not check it. Empty leaves the choice to the script." example:"anthropic/claude-sonnet-5-5"`
 	TestResults      string `name:"test-results" help:"JUnit XML file or directory the command writes, relative to working-directory, stored in the job's Tests tab." example:"test-results/junit.xml"`
 	WorkingDirectory string `name:"working-directory" default:"." help:"Directory to run the command in, holding the project's package.json." example:"apps/web"`
 }
@@ -81,20 +81,17 @@ func (c *runCmd) Run(ctx context.Context, client *sdk.Client) error {
 }
 
 // preflight checks, before anything is installed, what would make the
-// command fail later: missing credentials, or a Node.js too old for the
-// project's Stagehand. It returns where Chrome runs and the directory to run
+// command fail later: a missing Browserbase key, or a Node.js too old for the
+// project's Stagehand. The model is the script's to choose and configure, so
+// it is not checked. It returns where Chrome runs and the directory to run
 // the command in.
 func (c *runCmd) preflight() (browser, dir string, err error) {
 	browser, err = c.browser()
 	if err != nil {
 		return "", "", err
 	}
-	if c.Model != "" {
-		if err := checkModel(c.Model, browser == "browserbase"); err != nil {
-			return "", "", err
-		}
-	} else if browser == "local" && !anyModelKey() {
-		fmt.Fprintln(os.Stderr, "setup-stagehand: no model API key is set, such as ANTHROPIC_API_KEY or OPENAI_API_KEY, so act, extract, observe and agent will fail")
+	if browser == "local" && !anyAPIKey(os.Environ()) {
+		fmt.Fprintln(os.Stderr, "setup-stagehand: note: no *_API_KEY variable is set, so unless the script gets a model another way, act, extract, observe and agent will fail")
 	}
 	dir, err = filepath.Abs(c.WorkingDirectory)
 	if err != nil {
@@ -114,6 +111,19 @@ func (c *runCmd) env(browser, artifacts string) []string {
 		fmt.Fprintf(os.Stderr, "setup-stagehand: testing %s\n", base)
 	}
 	return env
+}
+
+// anyAPIKey reports whether any *_API_KEY variable other than Browserbase's
+// is set: a hint that the script has a model to call, whichever provider or
+// gateway it uses.
+func anyAPIKey(environ []string) bool {
+	for _, kv := range environ {
+		name, value, _ := strings.Cut(kv, "=")
+		if value != "" && strings.HasSuffix(name, "_API_KEY") && name != envAPIKey {
+			return true
+		}
+	}
+	return false
 }
 
 // browser resolves --browser=auto, and checks Browserbase has its key.

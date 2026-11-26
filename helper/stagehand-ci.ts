@@ -14,9 +14,11 @@
 //
 //   STAGEHAND_BROWSER        local or browserbase. Unset: browserbase when
 //                            BROWSERBASE_API_KEY is set, else local.
-//   STAGEHAND_MODEL          <provider>/<model>. Unset: a model for whichever
-//                            of ANTHROPIC_API_KEY or OPENAI_API_KEY is set,
-//                            and on Browserbase with neither, its model gateway.
+//   STAGEHAND_MODEL          <provider>/<model>, passed to Stagehand as is.
+//                            Unset: a model for whichever of ANTHROPIC_API_KEY
+//                            or OPENAI_API_KEY is set, and on Browserbase with
+//                            neither, its model gateway. Pass { model } to
+//                            withStagehand or launch to use your own client.
 //   STAGEHAND_ARTIFACTS_DIR  Where screenshots of failures and Browserbase
 //                            replay links go; the step stores it as artifacts.
 //   BASE_URL                 The site under test, for url().
@@ -24,7 +26,7 @@
 import { mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { browserbase, localBrowser, Stagehand } from "@browserbasehq/stagehand";
-import type { ModelConfig, Page, StagehandBrowser } from "@browserbasehq/stagehand";
+import type { ModelConfig, Page, StagehandBrowser, StagehandCreateOptions } from "@browserbasehq/stagehand";
 
 // Models used when STAGEHAND_MODEL is unset, for the first key that is set.
 // setup-stagehand releases update them.
@@ -42,6 +44,14 @@ const providerKeys: Record<string, string[]> = {
   cerebras: ["CEREBRAS_API_KEY"],
 };
 
+export interface Options {
+  /**
+   * The model to give Stagehand, overriding STAGEHAND_MODEL and the defaults:
+   * for a provider or gateway the helper does not configure itself.
+   */
+  model?: StagehandCreateOptions["model"];
+}
+
 export interface Session {
   browser: StagehandBrowser;
   stagehand: Stagehand;
@@ -58,10 +68,10 @@ export function url(path = "/"): string {
 }
 
 /** launch starts a browser, locally or on Browserbase, and Stagehand on it. */
-export async function launch(): Promise<Session> {
+export async function launch(options: Options = {}): Promise<Session> {
   const browser = onBrowserbase() ? await launchBrowserbase() : await localBrowser.launch();
   try {
-    const m = model();
+    const m = options.model ?? model();
     const stagehand = await Stagehand.create(m ? { browser, model: m } : { browser });
     const page = (await browser.context.activePage()) ?? (await browser.context.newPage());
     return { browser, stagehand, page };
@@ -76,8 +86,12 @@ export async function launch(): Promise<Session> {
  * named after the run if fn throws, and always closes the session, which
  * releases a Browserbase one. The error is rethrown, so the step fails.
  */
-export async function withStagehand(name: string, fn: (session: Session) => Promise<void>): Promise<void> {
-  const session = await launch();
+export async function withStagehand(
+  name: string,
+  fn: (session: Session) => Promise<void>,
+  options: Options = {},
+): Promise<void> {
+  const session = await launch(options);
   try {
     await fn(session);
   } catch (err) {

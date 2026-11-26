@@ -24,8 +24,9 @@ jobs:
 Run `circleci function add github.com/circleci-functions/setup-stagehand --as stagehand` to write
 the entry.
 
-Put the model provider's key, such as `ANTHROPIC_API_KEY`, in a context. Set `BROWSERBASE_API_KEY`
-as well to run the browser on Browserbase.
+Put your model's key, such as `ANTHROPIC_API_KEY`, in a context. Set `BROWSERBASE_API_KEY` as well
+to run the browser on Browserbase. The step sets up the browser and the job; your script chooses
+and configures the model, as it does on your laptop.
 
 ## run
 
@@ -37,7 +38,7 @@ then runs `command` in `working-directory`.
 | `command` | | Required. Shell command that runs your Stagehand scripts or tests |
 | `base-url` | `$DEPLOYMENT_URL`, then `$VERCEL_DEPLOYMENT_URL` | Site to test, exported to the command as `BASE_URL` |
 | `browser` | `auto` | `local`, `browserbase`, or `auto`: Browserbase when `BROWSERBASE_API_KEY` is set |
-| `model` | | `<provider>/<model>`, such as `anthropic/claude-sonnet-5-5`, exported as `STAGEHAND_MODEL` |
+| `model` | | Exported to the command as `STAGEHAND_MODEL` as written, such as `anthropic/claude-sonnet-5-5`. Not checked by the step |
 | `test-results` | | JUnit XML file or directory the command writes, stored in the Tests tab |
 | `working-directory` | `.` | Directory to run the command in |
 
@@ -47,12 +48,12 @@ A `base-url` without a scheme gets `https://`, or `http://` for `localhost` and 
 
 Before installing anything, the step fails with what to fix if:
 
-- `model` is set and its provider's key is not (on Browserbase the key is optional, as
-  Browserbase can serve the model);
 - `browser: browserbase` is set and `BROWSERBASE_API_KEY` is not;
 - the project uses Stagehand 4 and the job's Node.js is older than 22.18, which it needs.
 
-It warns when no model key is set at all, since `act`, `extract`, `observe` and `agent` need one.
+The model is your script's to configure: any provider, gateway or self-hosted model works. Running
+locally with no `*_API_KEY` variable set at all, the step prints a note, since `act`, `extract`,
+`observe` and `agent` need a model, but carries on.
 
 The command runs with bash (or `sh`), and gets these variables:
 
@@ -91,15 +92,17 @@ await withStagehand("checkout", async ({ stagehand, page }) => {
   set, then `openai/gpt-5.4-mini` when `OPENAI_API_KEY` is, and prints the one it picked. On
   Browserbase with neither, Browserbase picks the model. New releases of setup-stagehand update
   these defaults, so a model changes only when you upgrade;
+- takes `{ model }` as a third argument, for a client the helper does not set up itself, such as
+  OpenRouter, a gateway or a local model;
 - saves a full-page screenshot to the artifacts if the callback throws, then rethrows;
 - always closes the browser, which releases a Browserbase session.
 
 `launch()` and `screenshot()` are there for test runners that manage their own lifecycle. On a
 laptop the helper works the same way, reading the same variables.
 
-Model keys are read from `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`GOOGLE_GENERATIVE_AI_API_KEY` (or `GEMINI_API_KEY`), `GROQ_API_KEY` and `CEREBRAS_API_KEY`, the
-providers Stagehand supports.
+For `STAGEHAND_MODEL`, the helper reads the key from `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GOOGLE_GENERATIVE_AI_API_KEY` (or `GEMINI_API_KEY`), `GROQ_API_KEY` or `CEREBRAS_API_KEY`, by the
+model's provider.
 
 ## install
 

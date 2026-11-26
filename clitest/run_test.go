@@ -4,6 +4,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -18,9 +19,9 @@ func exec(path string, args ...string) (string, error) {
 func TestRun_GivesTheCommandTheJobsSetup(t *testing.T) {
 	e := newEnv(t)
 	e.vars["DEPLOYMENT_URL"] = "my-app.example.com/"
-	e.vars["ANTHROPIC_API_KEY"] = "sk-test"
 	vars := filepath.Join(t.TempDir(), "vars")
 
+	// No key for the model: the step passes it on and leaves it to the script.
 	out, err := e.run(t, "--command="+dumpEnv(vars), "--model=anthropic/claude-sonnet-5-5", "--chrome-version=stable", "--with-deps=false")
 	assert.NilError(t, err, out)
 	got := readVars(t, vars)
@@ -49,7 +50,7 @@ func TestRun_StoresNoEmptyArtifacts(t *testing.T) {
 	out, err := e.run(t, "--command=true", "--chrome-version=stable", "--with-deps=false")
 	assert.NilError(t, err, out)
 	assert.Check(t, cmp.Len(e.artifacts(), 0))
-	assert.Check(t, cmp.Contains(out, "no model API key is set"))
+	assert.Check(t, cmp.Contains(out, "no *_API_KEY variable is set"))
 }
 
 func TestRun_OnBrowserbaseInstallsNoChrome(t *testing.T) {
@@ -66,22 +67,23 @@ func TestRun_OnBrowserbaseInstallsNoChrome(t *testing.T) {
 	assert.Check(t, cmp.Contains(out, "running on Browserbase, so not installing Chrome"))
 }
 
-func TestRun_FailsFastOnMissingCredentials(t *testing.T) {
-	for _, tc := range []struct {
-		args []string
-		want string
-	}{
-		{[]string{"--model=anthropic/claude-sonnet-5-5"}, "needs ANTHROPIC_API_KEY"},
-		{[]string{"--model=claude-sonnet-5-5"}, "want <provider>/<model>"},
-		{[]string{"--model=openrouter/some-model"}, "want <provider>/<model>"},
-		{[]string{"--browser=browserbase"}, "needs BROWSERBASE_API_KEY"},
-	} {
-		e := newEnv(t)
-		out, err := e.run(t, append([]string{"--command=true"}, tc.args...)...)
-		assert.Check(t, err != nil, tc.args)
-		assert.Check(t, cmp.Contains(out, tc.want), tc.args)
-		assert.Check(t, cmp.Equal(e.downloads.Load(), int32(0)), tc.args)
-	}
+func TestRun_PassesAnyModelThrough(t *testing.T) {
+	e := newEnv(t)
+	e.vars["OPENROUTER_API_KEY"] = "sk-or-test"
+	vars := filepath.Join(t.TempDir(), "vars")
+
+	out, err := e.run(t, "--command="+dumpEnv(vars), "--model=openrouter/qwen/qwen3-coder", "--chrome-version=stable", "--with-deps=false")
+	assert.NilError(t, err, out)
+	assert.Check(t, cmp.Equal(readVars(t, vars)["STAGEHAND_MODEL"], "openrouter/qwen/qwen3-coder"))
+	assert.Check(t, !strings.Contains(out, "no *_API_KEY variable is set"), out)
+}
+
+func TestRun_FailsFastWithoutABrowserbaseKey(t *testing.T) {
+	e := newEnv(t)
+	out, err := e.run(t, "--command=true", "--browser=browserbase")
+	assert.Check(t, err != nil)
+	assert.Check(t, cmp.Contains(out, "needs BROWSERBASE_API_KEY"))
+	assert.Check(t, cmp.Equal(e.downloads.Load(), int32(0)))
 }
 
 func TestRun_FailsFastOnANodeTooOldForStagehand(t *testing.T) {
