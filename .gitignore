@@ -35,3 +35,7 @@ Thumbs.db
 dist/
 .task/
 test-results/
+
+# Built binary
+/setup-stagehand
+/setup-stagehand.exe
