@@ -1,14 +1,211 @@
 version: 2.1
 
-jobs:
-  build:
+functions:
+  node: github.com/circleci-functions/setup-node@v0.6.0
+
+orbs:
+  toolkit: https://raw.githubusercontent.com/circleci-functions/toolkit/refs/heads/main/orbs/toolkit.yml
+
+parameters:
+  prerelease:
+    type: boolean
+    default: false
+    description: >-
+      Publish this branch as a pre-release instead of running the full suite
+      (see RELEASE.md). Set it when triggering a pipeline from the UI.
+
+executors:
+  go:
     docker:
       - image: cimg/go:1.26
+  # The acceptance tests need Node.js.
+  go-browsers:
+    docker:
+      - image: cimg/go:1.26-browsers
+  # The Linux smoke job runs the packaged binary on an image with Node.js and
+  # nothing else: no Go, no Chrome and none of Chrome's system libraries, so
+  # setup-stagehand has to bring them all.
+  node:
+    docker:
+      - image: cimg/node:lts
+  macos:
+    macos:
+      xcode: "16.4.0"
+  windows:
+    machine:
+      image: windows-server-2022-gui:current
+      shell: bash.exe -eo pipefail
+    resource_class: windows.medium
+
+commands:
+  smoke:
+    description: >-
+      Run the packaged acceptance suite against the packaged setup-stagehand: a real Chrome for Testing from Google and Stagehand from npm. The executor needs Node.js but no Go: test2json and gotestsum turn the suite's output into the JUnit CircleCI collects.
+    parameters:
+      platform:
+        type: string
+        description: The os/arch whose artifacts to run, e.g. linux/amd64.
+      ext:
+        type: string
+        default: ""
+        description: Executable suffix for the platform.
+    steps:
+      - run:
+          name: Install Chrome and drive it with Stagehand
+          command: |
+            node --version
+            mkdir -p test-results
+            ./dist/tools/<< parameters.platform >>/gotestsum<< parameters.ext >> \
+              --junitfile test-results/smoke.xml \
+              --format standard-verbose \
+              --raw-command -- \
+              ./dist/tools/<< parameters.platform >>/test2json<< parameters.ext >> \
+                -p acceptance \
+                ./dist/acceptance/<< parameters.platform >>/acceptance<< parameters.ext >> \
+                -test.v=test2json \
+                -test.timeout=20m
+          environment:
+            SETUP_STAGEHAND_BINARY: ./dist/setup-stagehand/<< parameters.platform >>/setup-stagehand<< parameters.ext >>
+      - store_test_results:
+          path: test-results
+
+jobs:
+  test:
+    executor: go
     steps:
       - checkout
-      - run: go version
+      - restore_cache:
+          keys:
+            - setup-stagehand-go-{{ checksum "go.sum" }}-
+            - setup-stagehand-go-
+      - run: task lint
+      # A release is the only thing that runs `task publish`, so a missing task
+      # would otherwise surface at release time.
+      - run: task lint-tasks
+      - run: task test
+      - store_test_results:
+          path: test-results
+      - save_cache:
+          key: setup-stagehand-go-{{ checksum "go.sum" }}-{{ epoch }}
+          paths:
+            - ~/.cache/go-build
+            - ~/go/pkg/mod
+
+  # Cross-compiles setup-stagehand into ./dist the way `publish` will, plus the
+  # acceptance suite and the tools to report it, and persists them so the
+  # smoke jobs exercise exactly what is about to ship.
+  build:
+    executor: go
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - setup-stagehand-go-{{ checksum "go.sum" }}-
+            - setup-stagehand-go-
+      - run: task dry-run
+      - run: task build-acceptance
+      - run: task build-tools
+      - persist_to_workspace:
+          root: .
+          paths:
+            - dist
+
+  # The real Chrome for Testing and Stagehand, from Google and npm.
+  acceptance:
+    executor: go-browsers
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - setup-stagehand-go-{{ checksum "go.sum" }}-
+            - setup-stagehand-go-
+      - run:
+          name: Run acceptance tests
+          command: task acceptance
+      - store_test_results:
+          path: test-results
+
+  smoke-linux:
+    executor: node
+    steps:
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+
+  smoke-macos:
+    executor: macos
+    steps:
+      - attach_workspace:
+          at: .
+      # The image's Node.js is older than the 22.18 Stagehand 4 needs.
+      - node:
+          with:
+            node-version: lts/*
+      - smoke:
+          platform: darwin/arm64
+
+  smoke-windows:
+    executor: windows
+    steps:
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: windows/amd64
+          ext: ".exe"
 
 workflows:
-  ci:
+  test-publish:
+    when:
+      not: << pipeline.parameters.prerelease >>
     jobs:
+      - test
       - build
+      - acceptance
+      - smoke-linux:
+          requires: [build]
+      - smoke-macos:
+          requires: [build]
+      - smoke-windows:
+          requires: [build]
+      - toolkit/release-pr:
+          name: release-pr
+          executor: go
+          cache-prefix: setup-stagehand-go
+          # One at a time, so two pushes can't race to rewrite release/next.
+          serial-group: << pipeline.project.slug >>/release-pr
+          requires: &release-requires
+            - test
+            - acceptance
+            - smoke-linux
+            - smoke-macos
+            - smoke-windows
+          context: [github-release]
+          filters:
+            branches:
+              only: main
+      - toolkit/publish:
+          name: publish
+          executor: go
+          cache-prefix: setup-stagehand-go
+          serial-group: << pipeline.project.slug >>/publish
+          requires: *release-requires
+          context: [functions-publisher, github-release]
+          filters:
+            branches:
+              only: main
+
+  # Triggered by hand, so it skips the smoke jobs: the pre-release is what gets
+  # tested. Only maintainers
+  # can publish one.
+  prerelease:
+    when: << pipeline.parameters.prerelease >>
+    jobs:
+      - test
+      - build
+      - toolkit/publish-prerelease:
+          name: publish-prerelease
+          executor: go
+          cache-prefix: setup-stagehand-go
+          requires: [test, build]
+          context: [functions-prerelease]
