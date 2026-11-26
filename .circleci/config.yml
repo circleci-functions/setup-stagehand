@@ -2,6 +2,8 @@ version: 2.1
 
 functions:
   node: github.com/circleci-functions/setup-node@v0.6.0
+  # The published release, used the way a user would (the published job).
+  stagehand: github.com/circleci-functions/setup-stagehand@v0.1.0
 
 orbs:
   toolkit: https://raw.githubusercontent.com/circleci-functions/toolkit/refs/heads/main/orbs/toolkit.yml
@@ -125,6 +127,35 @@ jobs:
       - store_test_results:
           path: test-results
 
+  # The published setup-stagehand, run through a functions: block on an image
+  # with Node.js and nothing else, against a page the job serves: what a user
+  # gets, downloaded binary, published flags and all.
+  published:
+    executor: node
+    steps:
+      - checkout
+      - run:
+          name: Serve a page to test
+          background: true
+          command: >-
+            node -e "require('http').createServer((_, res) => res.end('<!doctype html><title>setup-stagehand acceptance</title>')).listen(8080)"
+      - run:
+          name: Install the test project
+          working_directory: acceptance/testdata/project
+          command: cp ../../../helper/stagehand-ci.ts . && npm install --no-audit --no-fund
+      - stagehand/install
+      - run:
+          name: Chrome is on the job
+          command: |
+            echo "CHROME_PATH=$CHROME_PATH"
+            "$CHROME_PATH" --version | grep -E 'Chrom(e|ium) .*[0-9]+\.[0-9]+'
+      - stagehand:
+          with:
+            # Fails unless Stagehand loaded the served page and read its title.
+            command: node home.ts
+            base-url: localhost:8080
+            working-directory: acceptance/testdata/project
+
   smoke-linux:
     executor: node
     steps:
@@ -162,6 +193,7 @@ workflows:
       - test
       - build
       - acceptance
+      - published
       - smoke-linux:
           requires: [build]
       - smoke-macos:
