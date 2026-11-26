@@ -1,5 +1,8 @@
 version: 2.1
 
+functions:
+  node: github.com/circleci-functions/setup-node@v0.6.0
+
 orbs:
   toolkit: https://raw.githubusercontent.com/circleci-functions/toolkit/refs/heads/main/orbs/toolkit.yml
 
@@ -135,6 +138,10 @@ jobs:
     steps:
       - attach_workspace:
           at: .
+      # The image's Node.js is older than the 22.18 Stagehand 4 needs.
+      - node:
+          with:
+            node-version: lts/*
       - smoke:
           platform: darwin/arm64
 
