@@ -84,3 +84,24 @@ func TestInstall_RejectsAnUnknownVersion(t *testing.T) {
 	assert.Check(t, err != nil)
 	assert.Check(t, cmp.Contains(out, `chrome-version "nightly": want a channel`))
 }
+
+func TestInstall_ThenRunKeepsTheHeadlessWrapperRunningChrome(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("only Linux runs without a display")
+	}
+	e := newEnv(t)
+	delete(e.vars, "DISPLAY")
+	out, err := e.run(t, stable...)
+	assert.NilError(t, err, out)
+	wrapper := e.exported(t)["CHROME_PATH"]
+
+	// A run step later in the job sees what install exported.
+	e.vars["CHROME_PATH"] = wrapper
+	vars := filepath.Join(t.TempDir(), "vars")
+	out, err = e.run(t, "--command="+dumpEnv(vars), "--with-deps=false")
+	assert.NilError(t, err, out)
+	assert.Check(t, cmp.Equal(readVars(t, vars)["CHROME_PATH"], wrapper))
+	got, err := exec(wrapper, "--version")
+	assert.NilError(t, err, got)
+	assert.Check(t, cmp.Contains(got, version))
+}

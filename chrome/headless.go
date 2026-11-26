@@ -1,6 +1,7 @@
 package chrome
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,6 +20,9 @@ func NeedsHeadless() bool {
 // a window still works where there is no display. Chrome's headless mode is
 // the full browser, extensions and all, which Stagehand needs.
 func WriteHeadlessWrapper(path, chrome string) error {
+	if filepath.Clean(path) == filepath.Clean(chrome) {
+		return fmt.Errorf("the headless wrapper %s would run itself", path)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}

@@ -215,3 +215,8 @@ func TestWriteHeadlessWrapper(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(string(got), "--headless=new --remote-debugging-port=1 about:blank\n"))
 }
+
+func TestWriteHeadlessWrapper_RefusesToRunItself(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chrome")
+	assert.Check(t, cmp.ErrorContains(WriteHeadlessWrapper(path, path), "would run itself"))
+}

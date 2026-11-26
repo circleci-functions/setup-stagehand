@@ -55,11 +55,25 @@ func installChrome(ctx context.Context, client *sdk.Client, f installFlags) (str
 		return "", err
 	}
 	wrapper := filepath.Join(root, "headless", "chrome")
+	if sameFile(path, wrapper) {
+		// An earlier install step on this job wrote it, and exported it as
+		// CHROME_PATH: it already runs Chrome headless.
+		return wrapper, nil
+	}
 	if err := chrome.WriteHeadlessWrapper(wrapper, path); err != nil {
 		return "", err
 	}
 	fmt.Fprintln(os.Stderr, "setup-stagehand: there is no display, so Chrome runs headless")
 	return wrapper, nil
+}
+
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
 }
 
 func chromeFor(ctx context.Context, client *sdk.Client, f installFlags) (string, error) {
