@@ -7,7 +7,6 @@ package main
 
 import (
 	"context"
-	"errors"
 
 	"github.com/alecthomas/kong"
 
@@ -19,14 +18,6 @@ type cli struct {
 	Run     runCmd     `cmd:"" default:"withargs" help:"Install Chrome if needed, then run the project's Stagehand scripts or tests. Runs when no command is given."`
 	Install installCmd `cmd:"" help:"Install a Chrome that Stagehand can drive, caching it across jobs."`
 }
-
-type runCmd struct{}
-
-func (c *runCmd) Run() error { return errors.New("not implemented yet") }
-
-type installCmd struct{}
-
-func (c *installCmd) Run() error { return errors.New("not implemented yet") }
 
 func main() {
 	sdk.Run(run)
